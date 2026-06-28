@@ -15,7 +15,7 @@ chmod +x setup-bluray-player.sh
 ./setup-bluray-player.sh
 ```
 
-See below for options like `--with-makemkv --backend makemkv` or `--with-menus`.
+See below for options like `--backend makemkv`.
 
 ## Prerequisites
 
@@ -55,9 +55,7 @@ The wrapper in `~/.local/bin/play-bluray` (ensure it's in PATH) adds
 |-------------------------|----------------------------------------------------------|
 | `--container-name NAME` | Name of the distrobox (default: `bazzite-bluray`)        |
 | `--image IMAGE`         | Container base image                                     |
-| `--with-makemkv`        | Install MakeMKV software (does not activate backend)     |
-| `--backend free\|makemkv` | Choose decryption backend (default: `free`)            |
-| `--with-menus`          | Enable BD-J / Java menu support (default: disabled)      |
+| `--backend free\|makemkv` | Decryption backend (default: `free`); `makemkv` installs+activates MakeMKV |
 | `--setup-keys-only`     | Only (re)download `KEYDB.cfg` on the host                |
 | `--force-recreate`      | Remove and recreate the container                        |
 | `--help`                | Show help                                                |
@@ -74,12 +72,10 @@ Update keys: `./setup-bluray-player.sh --setup-keys-only --force-recreate`
 ### MakeMKV
 Install + activate:
 ```bash
-./setup-bluray-player.sh --with-makemkv --backend makemkv
+./setup-bluray-player.sh --backend makemkv
 ```
 
 Uses `libmmbd` symlink. To disable: remove the symlinks inside container and reinstall libaacs.
-
-Install MakeMKV without activating backend with just `--with-makemkv`.
 
 ## Desktop Integration (optional)
 ```bash
@@ -88,19 +84,12 @@ distrobox-export --app makemkv
 ```
 (Or use DistroShelf.)
 
-## Menus (BD-J)
+## Menus (not supported)
 
-Optional, off by default. Enable with `--with-menus`.
-
-Installs `libbluray-bdj`, `libbluray-utils`, Java 21+ (Java 8 unavailable in F44).
-
-Diagnostics (inside, disc inserted):
-```bash
-bd_info /dev/sr0
-```
-Look for `BD-J handled: yes`.
-
-**Limitations**: Experimental in libbluray + mpv. Menus often don't work well. Use MakeMKV backend + rip for better results.
+Disc menus (HDMV and BD-J/Java) are **not supported**. mpv only does title
+playback — it never drives libbluray's menu mode. Playback skips straight to the
+main title, which is fine for most use. Menus do work under VLC with a legacy
+JDK; `AGENTS.md` documents that path if we ever switch players.
 
 ## Troubleshooting
 
@@ -115,13 +104,9 @@ Look for `BD-J handled: yes`.
 - Update KEYDB or use `--backend makemkv`.
 
 **MakeMKV needs key / license**
-- Script checks/prompts for key during `--with-makemkv --backend makemkv`.
+- Script checks/prompts for key during `--backend makemkv`.
 - Get key: https://www.makemkv.com/forum2/viewtopic.php?f=5&t=1053
 - License pre-accepted on install.
-
-**Menus broken**
-- BD-J is experimental in libbluray/mpv. Java 21+ used (no 1.8 in F44).
-- Use makemkvcon to rip if needed.
 
 **mpv not found after export**
 - Use full `distrobox enter ... -- mpv` or ensure PATH.
@@ -143,6 +128,12 @@ Window appears → display works, issue is GPU/VO context (try `--vo=x11` under 
 
 Re-run with desired flags. Use `--force-recreate` for clean container or fresh KEYDB.
 
+## Contributing
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org)
+(`feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, …). See `AGENTS.md` for code
+and documentation style.
+
 ## Files / Credits
 
 - Container, `~/.config/aacs/KEYDB.cfg`, `~/.local/bin/play-bluray`, MakeMKV build artifacts.
@@ -151,11 +142,15 @@ Sources: Arch Wiki (Blu-ray), fvonline-db KEYDB, MakeMKV forum, Bazzite docs.
 
 ## Legal
 
-This project ships no decryption keys or libraries; it only installs third-party
-software (libaacs/libbdplus, MakeMKV, KEYDB.cfg) from their own sources at your
-direction. Circumventing copy protection is regulated differently by jurisdiction
-(e.g. DMCA, EUCD) — complying is your responsibility. Use only with discs you own.
+The MIT license covers only this repository's own files — the setup script and
+docs. It grants no rights to, and does not alter the license of, the third-party
+software the script downloads, builds, or installs (MakeMKV, libaacs/libbdplus,
+ffmpeg, KEYDB.cfg, etc.); each keeps its own license and terms. This project
+ships none of them and no decryption keys.
+
+Circumventing copy protection is regulated differently by jurisdiction (e.g.
+DMCA, EUCD) — complying is your responsibility. Use only with discs you own.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). Applies to this repo's code/docs only (see Legal).

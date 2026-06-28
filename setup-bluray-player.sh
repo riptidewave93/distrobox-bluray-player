@@ -9,12 +9,10 @@ set -euo pipefail
 # Defaults
 CONTAINER_NAME="bazzite-bluray"
 IMAGE="registry.fedoraproject.org/fedora-toolbox:44"
-WITH_MAKEMKV=false
-BACKEND="free"          # free | makemkv   (default free)
-WITH_MENUS=false        # enable BD-J / Java menu support (default off)
+BACKEND="free"
 SETUP_KEYS_ONLY=false
 FORCE_RECREATE=false
-MAKEMKV_VER="1.18.4"   # Update as needed from https://www.makemkv.com/download/ or forum
+MAKEMKV_VER="1.18.4" # Update as needed from https://www.makemkv.com/download/ or forum
 
 # Helpers
 print_help() {
@@ -24,9 +22,7 @@ Usage: $0 [OPTIONS]
 Options:
   --container-name NAME   (default: $CONTAINER_NAME)
   --image IMAGE           (default: $IMAGE)
-  --with-makemkv          Install MakeMKV
-  --backend free|makemkv  (default: free)
-  --with-menus            BD-J support
+  --backend free|makemkv  (default: free; makemkv installs+activates MakeMKV)
   --setup-keys-only       Refresh KEYDB only
   --force-recreate        Nuke container
   --help
@@ -75,17 +71,9 @@ while [[ $# -gt 0 ]]; do
       IMAGE="$2"
       shift 2
       ;;
-    --with-makemkv|--install-makemkv)
-      WITH_MAKEMKV=true
-      shift
-      ;;
     --backend)
       BACKEND="$2"
       shift 2
-      ;;
-    --with-menus)
-      WITH_MENUS=true
-      shift
       ;;
     --setup-keys-only)
       SETUP_KEYS_ONLY=true
@@ -129,6 +117,24 @@ detect_devices() {
 
 DEVICES=$(detect_devices)
 [[ -z "$DEVICES" && "$SETUP_KEYS_ONLY" != "true" ]] && log "WARNING: no optical or GPU devices found"
+
+# Warn only on real access failure (-r/-w honors logind ACLs, not bare group
+# membership). Check /dev/sr* only; its optical sg sibling shares the same access.
+check_device_access() {
+  local groups="" dev g
+  shopt -s nullglob
+  for dev in /dev/sr*; do
+    [[ -e "$dev" && ! ( -r "$dev" && -w "$dev" ) ]] || continue
+    g=$(stat -c '%G' "$dev")
+    [[ " $groups " == *" $g "* ]] || groups+=" $g"
+  done
+  shopt -u nullglob
+  groups="${groups# }"
+  [[ -z "$groups" ]] && return 0
+  log "WARNING: no access to optical device(s); add your user to group(s): $groups"
+  log "  sudo usermod -aG ${groups// /,} $USER   # then log out and back in"
+}
+check_device_access
 
 GUI_FLAGS=""
 if [[ -d /dev/dri ]]; then
@@ -197,21 +203,13 @@ if [[ "$FORCE_RECREATE" == "true" ]] && container_exists; then
 fi
 
 if ! container_exists; then
-  NVIDIA_FLAG=""
-  if [[ -e /dev/nvidia0 ]]; then
-    NVIDIA_FLAG="--nvidia"
-  fi
-  ADDITIONAL_FLAGS="${DEVICES}${GUI_FLAGS}"
-  ADDITIONAL_FLAGS="${ADDITIONAL_FLAGS# }"  # strip any leading space
-
-  # distrobox shares the Wayland/X11 sockets and /run/user/$UID already.
-  # Don't re-mount them — podman errors with "duplicate mount destination".
-
-  if [[ -n "$ADDITIONAL_FLAGS" ]]; then
-    distrobox create $NVIDIA_FLAG --image "$IMAGE" --name "$CONTAINER_NAME" --additional-flags "$ADDITIONAL_FLAGS" --yes 2>/dev/null || distrobox create $NVIDIA_FLAG -i "$IMAGE" -n "$CONTAINER_NAME" --additional-flags "$ADDITIONAL_FLAGS"
-  else
-    distrobox create $NVIDIA_FLAG --image "$IMAGE" --name "$CONTAINER_NAME" --yes 2>/dev/null || distrobox create $NVIDIA_FLAG -i "$IMAGE" -n "$CONTAINER_NAME"
-  fi
+  # distrobox already shares the Wayland/X11 sockets and /run/user/$UID; don't
+  # re-mount them or podman errors with "duplicate mount destination".
+  create_args=(--image "$IMAGE" --name "$CONTAINER_NAME" --yes)
+  [[ -e /dev/nvidia0 ]] && create_args=(--nvidia "${create_args[@]}")
+  additional="${DEVICES}${GUI_FLAGS}"
+  [[ -n "${additional// }" ]] && create_args+=(--additional-flags "${additional# }")
+  distrobox create "${create_args[@]}"
 fi
 sleep 1
 
@@ -219,36 +217,23 @@ run_in_box() { distrobox enter "$CONTAINER_NAME" -- bash -c "$1"; }
 
 run_in_box '
   set -euo pipefail
-  sudo dnf update -y
   sudo dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+  sudo dnf update -y
 '
 
 run_in_box '
   set -euo pipefail
   sudo dnf install -y mpv libbluray libaacs libbdplus \
     mesa-dri-drivers mesa-vulkan-drivers libva vulkan-loader \
-    mesa-libGL mesa-libEGL libglvnd libglvnd-glx
-'  # Mesa is for AMD/Intel; NVIDIA uses host drivers via --nvidia.
-
-# Replace Fedora's codec-stripped ffmpeg/mesa with RPM Fusion freeworld builds;
-# without HEVC, UHD/newer discs play audio with a black video window.
-# install --allowerasing (not dnf swap) keeps this idempotent on re-runs.
-run_in_box '
-  set -euo pipefail
-  sudo dnf install -y --allowerasing ffmpeg ffmpeg-libs
-  sudo dnf install -y --allowerasing mesa-va-drivers-freeworld mesa-vdpau-drivers-freeworld || true
+    mesa-libGL mesa-libEGL libglvnd libglvnd-glx ffmpeg ffmpeg-libs \
+    mesa-va-drivers-freeworld mesa-vulkan-drivers-freeworld
 '
 
-[[ "$WITH_MENUS" == "true" ]] && run_in_box '
-  set -euo pipefail
-  sudo dnf install -y libbluray-bdj libbluray-utils java-21-openjdk-headless java-latest-openjdk-headless || true
-'
-
-if [[ "$WITH_MAKEMKV" == "true" ]]; then
+if [[ "$BACKEND" == "makemkv" ]]; then
   log "Installing MakeMKV..."
   run_in_box '
     set -euo pipefail
-    sudo dnf install -y expat-devel libavutil-free-devel libavcodec-free-devel qt5-qtbase-gui qt5-qtbase-devel zlib-devel openssl-devel make gcc pkg-config libcurl-devel || true
+    sudo dnf install -y expat-devel ffmpeg-devel qt5-qtbase-gui qt5-qtbase-devel zlib-devel openssl-devel make gcc gcc-c++ pkg-config libcurl-devel
     mkdir -p ~/makemkv-build && cd ~/makemkv-build
     rm -rf makemkv-oss-* makemkv-bin-*
     curl -fL -O "https://www.makemkv.com/download/makemkv-oss-'"$MAKEMKV_VER"'.tar.gz"
@@ -272,7 +257,7 @@ if [[ "$WITH_MAKEMKV" == "true" ]]; then
     mkdir -p ~/.MakeMKV
     [ -f ~/.MakeMKV/settings.conf ] || echo "[app]" > ~/.MakeMKV/settings.conf
   '
-  [[ "$BACKEND" == "makemkv" ]] && run_in_box '
+  run_in_box '
     set -euo pipefail
     LIBMMBD=$(find /usr -name "libmmbd.so.0*" 2>/dev/null | head -1)
     if [[ -n "$LIBMMBD" ]]; then
@@ -282,8 +267,6 @@ if [[ "$WITH_MAKEMKV" == "true" ]]; then
     true  # ensure this run_in_box always exits 0 under set -e
   '
   check_makemkv_key
-else
-  [[ "$BACKEND" == "makemkv" ]] && die "needs --with-makemkv"
 fi
 
 # Launcher
@@ -315,14 +298,12 @@ chmod +x "$LAUNCHER_PATH"
 log "Setup complete!"
 cat <<EOF
 Container: ${CONTAINER_NAME} (image: $IMAGE)
-Backend: $BACKEND | Menus: $WITH_MENUS | MakeMKV: $WITH_MAKEMKV
+Backend: $BACKEND
 KEYDB: ~/.config/aacs/KEYDB.cfg
 
 Enter: distrobox enter $CONTAINER_NAME
 Play:  play-bluray --bluray-device=/dev/sr0 bd://
-       (wrapper adds --vo=gpu-next --hwdec=auto --gpu-context=wayland --force-window=immediate --fs)
-       Tip: put --bluray-device before the bd:// URL.
-       If no window: try inside container with --vo=wlshm (tests display) or --gpu-context=auto.
+       (put --bluray-device before the bd:// URL)
 
 Re-run with flags to update. --force-recreate for clean slate.
 EOF
