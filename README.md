@@ -38,11 +38,15 @@ distrobox enter bazzite-bluray
 # Recommended: device option before the URL
 distrobox enter bazzite-bluray -- mpv --vo=gpu-next --hwdec=auto --gpu-context=auto --bluray-device=/dev/sr0 bd://
 # or use the wrapper (forces a window)
-play-bluray --bluray-device=/dev/sr0 bd://
+play-bluray                              # defaults to --bluray-device=/dev/sr0 bd://
+play-bluray --bluray-device=/dev/sr1 bd://   # override the device or URL
 ```
 
 The wrapper in `~/.local/bin/play-bluray` (ensure it's in PATH) adds
 `--vo=gpu-next --hwdec=auto --gpu-context=auto --force-window=immediate --fs`.
+If you omit `--bluray-device` and/or the `bd://` URL it supplies them
+(`--bluray-device=/dev/sr0 bd://`); any other arguments pass straight through to
+mpv.
 
 **Rendering:**
 - AMD/Intel: `/dev/dri` + Mesa (script passes `--device /dev/dri` and `--group-add video`).

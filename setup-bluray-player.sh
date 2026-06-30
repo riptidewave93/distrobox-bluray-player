@@ -277,9 +277,29 @@ mkdir -p "$LAUNCHER_DIR"
 cat > "$LAUNCHER_PATH" <<'LAUNCHER_EOF'
 #!/bin/bash
 CONTAINER="__CONTAINER_NAME__"
+DEFAULT_DEVICE="/dev/sr0"
 
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 [[ -n "$WAYLAND_DISPLAY" ]] && export WAYLAND_DISPLAY
+
+# Default --bluray-device=DEV and a bd:// URL if the user omits; pass
+# everything else straight through to mpv. The default device is prepended
+# so it always precedes the URL, which bd:// requires.
+have_device=false
+have_url=false
+passthrough=()
+for arg in "$@"; do
+  case "$arg" in
+    --bluray-device=*|--bluray-device) have_device=true ;;
+    bd://*) have_url=true ;;
+  esac
+  passthrough+=("$arg")
+done
+
+mpv_args=()
+$have_device || mpv_args+=("--bluray-device=$DEFAULT_DEVICE")
+mpv_args+=("${passthrough[@]}")
+$have_url || mpv_args+=("bd://")
 
 exec distrobox enter "$CONTAINER" -- mpv \
   --vo=gpu-next \
@@ -289,7 +309,7 @@ exec distrobox enter "$CONTAINER" -- mpv \
   --audio-device=auto \
   --force-window=immediate \
   --fs \
-  "$@"
+  "${mpv_args[@]}"
 LAUNCHER_EOF
 
 sed -i "s|__CONTAINER_NAME__|$CONTAINER_NAME|g" "$LAUNCHER_PATH"
@@ -302,8 +322,8 @@ Backend: $BACKEND
 KEYDB: ~/.config/aacs/KEYDB.cfg
 
 Enter: distrobox enter $CONTAINER_NAME
-Play:  play-bluray --bluray-device=/dev/sr0 bd://
-       (put --bluray-device before the bd:// URL)
+Play:  play-bluray                              # defaults to --bluray-device=/dev/sr0 bd://
+       play-bluray --bluray-device=/dev/sr1 bd://   # override device/URL; extra args pass to mpv
 
 Re-run with flags to update. --force-recreate for clean slate.
 EOF
