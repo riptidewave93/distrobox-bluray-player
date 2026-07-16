@@ -38,15 +38,14 @@ distrobox enter bazzite-bluray
 # Recommended: device option before the URL
 distrobox enter bazzite-bluray -- mpv --vo=gpu-next --hwdec=auto --gpu-context=auto --bluray-device=/dev/sr0 bd://
 # or use the wrapper (forces a window)
-play-bluray                              # defaults to --bluray-device=/dev/sr0 bd://
-play-bluray --bluray-device=/dev/sr1 bd://   # override the device or URL
+play-bluray                                # defaults to /dev/sr0
+play-bluray --bluray-device=/dev/sr1 bd://   # override device/URL
 ```
 
-The wrapper in `~/.local/bin/play-bluray` (ensure it's in PATH) adds
-`--vo=gpu-next --hwdec=auto --gpu-context=auto --force-window=immediate --fs`.
-If you omit `--bluray-device` and/or the `bd://` URL it supplies them
-(`--bluray-device=/dev/sr0 bd://`); any other arguments pass straight through to
-mpv.
+The wrapper in `~/.local/bin/play-bluray` (ensure it's in PATH) adds the
+gpu-next/hwdec render flags plus cache/buffer flags that read ahead so a slow disc
+buffers instead of stuttering. It supplies `--bluray-device=/dev/sr0` and `bd://`
+if omitted; any other arguments pass through to mpv and override the defaults.
 
 **Rendering:**
 - AMD/Intel: `/dev/dri` + Mesa (script passes `--device /dev/dri` and `--group-add video`).
@@ -72,6 +71,10 @@ Re-running the script is safe and mostly idempotent.
 `libaacs` + `libbdplus` + `KEYDB.cfg` (in `~/.config/aacs`).
 
 Update keys: `./setup-bluray-player.sh --setup-keys-only --force-recreate`
+
+> **Standard (1080p) Blu-ray only.** `libaacs` is AACS 1.0; 4K UHD discs use AACS 2.0,
+> which it cannot decrypt — the title never starts regardless of KEYDB. UHD requires
+> `--backend makemkv` (LibreDrive).
 
 ### MakeMKV
 Install + activate:
@@ -104,8 +107,9 @@ JDK; `AGENTS.md` documents that path if we ever switch players.
 **Missing AACS config**
 - Check `~/.config/aacs/KEYDB.cfg` (uppercase). Re-run `--setup-keys-only --force-recreate`.
 
-**Newer discs fail**
-- Update KEYDB or use `--backend makemkv`.
+**Title never starts on the free backend**
+- 4K UHD disc? Expected — `libaacs` can't do AACS 2.0; use `--backend makemkv`.
+- 1080p disc? Refresh KEYDB (`--setup-keys-only --force-recreate`) or use `--backend makemkv`; check the error with `BD_DEBUG_MASK=0x90 mpv -v --bluray-device=/dev/sr0 bd://`.
 
 **MakeMKV needs key / license**
 - Script checks/prompts for key during `--backend makemkv`.
@@ -127,6 +131,9 @@ A display/VO issue — run from a desktop session, not ssh. Test the software VO
 distrobox enter bazzite-bluray -- mpv --vo=wlshm --force-window=immediate --idle --no-terminal
 ```
 Window appears → display works, issue is GPU/VO context (try `--vo=x11` under XWayland). No window → check the session, or `nvidia-container-toolkit` on NVIDIA hosts.
+
+**Drive disconnects mid-playback**
+`dmesg` shows `hostbyte=DID_ERROR` then `usb ... USB disconnect` (no `Sense Key`/`Medium Error`) — the USB drive is dropping off the bus, not hitting a bad disc. External slim BD drives brown out under load. Fix the power/connection: dual-USB "Y" cable or powered hub, a rear motherboard port (USB 2.0 is fine), a shorter cable, or disable autosuspend (`usbcore.autosuspend=-1`). No buffer setting helps — a disconnected drive has nothing to read.
 
 ## Updating
 

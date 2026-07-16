@@ -301,6 +301,9 @@ $have_device || mpv_args+=("--bluray-device=$DEFAULT_DEVICE")
 mpv_args+=("${passthrough[@]}")
 $have_url || mpv_args+=("bd://")
 
+# Cache/buffer flags absorb optical-read slowdowns: bd:// is treated as local
+# so the cache is off by default. Force it on with a large read-ahead buffer,
+# and if it still underruns, pause and rebuild a cushion instead of stuttering.
 exec distrobox enter "$CONTAINER" -- mpv \
   --vo=gpu-next \
   --hwdec=auto \
@@ -309,6 +312,13 @@ exec distrobox enter "$CONTAINER" -- mpv \
   --audio-device=auto \
   --force-window=immediate \
   --fs \
+  --cache=yes \
+  --demuxer-max-bytes=1GiB \
+  --demuxer-max-back-bytes=256MiB \
+  --demuxer-readahead-secs=300 \
+  --cache-pause=yes \
+  --cache-pause-wait=3 \
+  --cache-pause-initial=yes \
   "${mpv_args[@]}"
 LAUNCHER_EOF
 

@@ -119,6 +119,9 @@ major version can break the MakeMKV build step.
 - **No window, audio only:** VO/display problem — pass `--vo=gpu-next --gpu-context=auto --force-window=immediate` (use `auto`, never hardcoded `=wayland`, which hard-fails to audio-only). Isolate with `--vo=wlshm`.
 - **Black window, audio plays:** missing HEVC decoder. Fedora's `ffmpeg-free`/`mesa-va-drivers` strip it; install RPM Fusion `ffmpeg ffmpeg-libs` + `mesa-*-freeworld` via `dnf install --allowerasing` (not `swap`, to stay idempotent). mpv logs `Failed to initialize a decoder for codec 'hevc'` even with `--hwdec=no`.
 - **`play-bluray` default args:** the wrapper defaults `--bluray-device=/dev/sr0` and `bd://` when the user omits them, and passes everything else through to mpv. The default device is **prepended** (not appended) so it always precedes any `bd://` URL — bd:// fails if the device option comes after it.
+- **Read-slowdown buffering:** `bd://` is treated as local, so mpv's cache is off by default and a slow read starves the decoder. The wrapper forces `--cache=yes` (load-bearing — the rest are no-ops without it) plus a large forward buffer and `--cache-pause-*` to rebuffer on underrun. Flags precede the passthrough args so users can override.
+- **Drive disconnects mid-playback (USB, not disc):** `dmesg` `hostbyte=DID_ERROR` → `usb ... USB disconnect` → re-enumeration (no `Sense Key`/`Medium Error`) is the drive dropping off the bus, not a read error. External slim BD drives brown out under load — a power/cable/port fix (Y-cable, powered hub, rear/USB-2 port, `usbcore.autosuspend=-1`), not software. Already `usb-storage` (BOT) not UAS, so the `usb-storage.quirks` workaround doesn't apply.
+- **Stutter from split-lock throttling (makemkv backend):** repeated `split lock detection: ... bus_lock trap` from a MakeMKV thread means the kernel is throttling it as a penalty — that throttle is the stutter. Host fix `kernel.split_lock_mitigate=0`; stays out of the script (no base-OS changes).
 - **`No protocol handler ... bd://`:** libaacs/libbdplus (or their libmmbd replacements) missing, or the disc needs an absent key — makemkv backend + symlinks + valid key is the usual fix.
 - **KEYDB.cfg:** host path `~/.config/aacs/KEYDB.cfg` (exact case); from `http://fvonline-db.bplaced.net/fv_download.php?lang=eng`; refresh with `--setup-keys-only --force-recreate`. Newer discs fail with AACS errors until it's updated.
 - **MakeMKV key:** `check_makemkv_key()` (host, only under `--backend makemkv`) checks `^app_Key` in `~/.MakeMKV/settings.conf` and prompts; the build pre-creates a skeleton.
@@ -185,6 +188,7 @@ Checklist when playback is broken:
 
 - No disc menus (HDMV or BD-J): mpv does title playback only. A VLC + legacy-JDK
   path works if ever needed — see "Disc menus" above.
+- **Free backend is AACS 1.0 only — no 4K UHD.** `libaacs` can't decrypt AACS 2.0 (all UHD discs); the title never starts regardless of KEYDB. Architectural, not a bug. UHD needs `--backend makemkv` (LibreDrive). The default `free` means UHD users hit this silently.
 - Very new discs may need a fresh MakeMKV beta key or updated KEYDB.
 - Assumes an x86_64 Fedora toolbox image.
 - `MAKEMKV_VER` must be bumped manually.
